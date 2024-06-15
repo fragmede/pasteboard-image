@@ -59,9 +59,9 @@ def get_stdout_filename_extension():
     result = libc.realpath(b"/dev/fd/1", resolved_path)
     if result:
         filename = resolved_path.value.decode()
-		period = filename.rfind('.')
-		if period == -1:
-			return ''
+        period = filename.rfind('.')
+        if period == -1:
+            return ''
         return filename[period+1:]
     raise Exception('Error calling libc.realpath')
 
