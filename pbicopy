@@ -1,0 +1,42 @@
+#!/usr/bin/env python
+# pbcopy.py
+import AppKit
+import sys
+from io import BytesIO
+from PIL import Image, UnidentifiedImageError
+
+def set_text_clipboard(text):
+    pb = AppKit.NSPasteboard.generalPasteboard()
+    pb.clearContents()
+    pb.setString_forType_(text, AppKit.NSStringPboardType)
+
+def set_image_clipboard(image_bytes):
+    image = Image.open(BytesIO(image_bytes))
+    
+    # Convert the image to TIFF format
+    tiff_buffer = BytesIO()
+    image.save(tiff_buffer, format='TIFF')
+    tiff_data = tiff_buffer.getvalue()
+
+    # Create NSData from the TIFF bytes
+    ns_data = AppKit.NSData.dataWithBytes_length_(tiff_data, len(tiff_data))
+    
+    # Set the TIFF data to the clipboard
+    pb = AppKit.NSPasteboard.generalPasteboard()
+    pb.clearContents()
+    pb.setData_forType_(ns_data, AppKit.NSPasteboardTypeTIFF)
+
+if __name__ == "__main__":
+    input_data = sys.stdin.buffer.read()
+
+    try:
+        # Try to interpret input_data as an image
+        Image.open(BytesIO(input_data))
+        is_image = True
+    except UnidentifiedImageError:
+        is_image = False
+
+    if is_image:
+        set_image_clipboard(input_data)
+    else:
+        set_text_clipboard(input_data.decode('utf-8'))
