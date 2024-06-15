@@ -1,12 +1,14 @@
 #!/usr/bin/env python
 # pbpaste.py
 from PIL import Image
+from stat import *
 import AppKit
-import pyperclip
-import sys
 import ctypes
+import io
 import os
-import stat
+import pyperclip
+import subprocess
+import sys
 
 # Load the libc library
 libc = ctypes.CDLL("/usr/lib/libSystem.dylib")
@@ -43,13 +45,12 @@ libc.realpath.argtypes = [ctypes.c_char_p, ctypes.c_char_p]
 
 def stdout_output_device():
     statbuf = Stat()
-    result = libc.fstat(2, ctypes.byref(statbuf)) # 2 = STDOUT
-    if stat.S_IFREG(statbuf.st_mode):
-        #if statbuf.st_mode & 0o170000 == 0o100000:  # S_IFREG
+    result = libc.fstat(sys.stdout.fileno(), ctypes.byref(statbuf))
+    if S_ISREG(statbuf.st_mode):
         return 'file'
-    elif stat.S_ISCHR(statbuf.st_mode):
-        return 'terminal' # Technically could be a character device that isn't
-    # a terminal. Check tcgetattr(2, termios
+    elif S_ISCHR(statbuf.st_mode):
+        return 'terminal' # Technically it could be a character device that isn't
+						  # a terminal. Check tcgetattr
     return 'unknown' # pipe or a socket
 
 def get_stdout_filename_extension():
@@ -58,11 +59,11 @@ def get_stdout_filename_extension():
     result = libc.realpath(b"/dev/fd/1", resolved_path)
     if result:
         filename = resolved_path.value.decode()
-        extension = filename[filename.rfind('.'): -1]
-        import sys
-        print("Resolved path:", resolved_path.value.decode(), file=sys.stderr)
-        return extension
-    raise Exception('doom')
+		period = filename.rfind('.')
+		if period == -1:
+			return ''
+        return filename[period+1:]
+    raise Exception('Error calling libc.realpath')
 
 
 def get_clipboard_content():
@@ -73,15 +74,10 @@ def get_clipboard_content():
         # Handle text content
         return 'text', pb.stringForType_(AppKit.NSStringPboardType)
     elif AppKit.NSPasteboardTypeTIFF in types:
+		# TIFF is just how images are stored on the clipboard
         tiff_data = pb.dataForType_(AppKit.NSPasteboardTypeTIFF)
         return 'image', tiff_data.bytes()
     return 'unknown', None
-
-#
-#        # Handle image content
-#        device = stdout_output_device()
-#        if device == 'file':
-#            content = transform_content(get_stdout_filename_extension())
 
 def transform_content(extension, content):
     #extension = get_stdout_filename_extension()
@@ -96,14 +92,13 @@ def transform_content(extension, content):
                     ]
     if extension:
         extension = extension.lower()
-        converted = False
-        for extension_name, format_name in extension_data:
-            for name in extension_name:
-                if extension in name:
-                    tiff_image = Image.open(io.BytesIO(content))
-                    output = io.BytesIO()
-                    tiff_image.save(output, format=format_name)
-                    return output.getvalue()
+        for extensions, format_name in extension_data:
+            if extension in extensions:
+                tiff_image = Image.open(io.BytesIO(content))
+                output = io.BytesIO()
+                tiff_image.save(output, format=format_name)
+                foo = output.getvalue()
+                return output.getvalue()
     return content
 
 def pbpaste():
@@ -114,12 +109,15 @@ def pbpaste():
         device = stdout_output_device()
         if device == 'file':
             extension = get_stdout_filename_extension()
-            content = transform_content(extension, conent)
+            content = transform_content(extension, content)
             sys.stdout.buffer.write(content)
-        #elif device == 'terminal':
-            #os.environ['TERM']
-            
-        #if output is a terminal, check if it has sixel support
+        elif device == 'terminal':
+            result = subprocess.run(
+                    ['magick', '-', 'sixel:-'],
+                    input=content,
+                    stdout=sys.stdout,
+                    stderr=sys.stderr,
+                    )
     else:
         print("Unsupported clipboard content")
 
